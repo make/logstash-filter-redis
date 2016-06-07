@@ -2,6 +2,21 @@
 require "logstash/filters/base"
 require "logstash/namespace"
 
+# A general search and replace tool which queries replacement values from a redis instance.
+#
+# This is actually a redis version of a translate plugin. <https://www.elastic.co/guide/en/logstash/current/plugins-filters-translate.html>
+#
+# Operationally, if the event field specified in the "field" configuration
+# matches the EXACT contents of a redis key, the field's value will be substituted
+# with the matched key's value from the redis GET <key> command.
+#
+# By default, the redis filter will replace the contents of the 
+# matching event field (in-place). However, by using the "destination"
+# configuration item, you may also specify a target event field to
+# populate with the new translated value.
+# 
+# Alternatively, for simple string search and replacements for just a few values
+# you might consider using the gsub function of the mutate filter.
 
 class LogStash::Filters::Redis < LogStash::Filters::Base
 
@@ -19,80 +34,63 @@ class LogStash::Filters::Redis < LogStash::Filters::Base
   # The Redis database number.
   config :db, :validate => :number, :default => 0
   
-  # Tag to store key
-  config :store_tag, :validate => :string, :required => true
+  # The name of the logstash event field containing the value to be compared for a
+  # match by the translate filter (e.g. "message", "host", "response_code"). 
+  # 
+  # If this field is an array, only the first value will be used.
+  config :field, :validate => :string, :required => true
 
-  # Tag to retrieve key
-  config :retrieve_tag, :validate => :string, :required => true
+  # If the destination (or target) field already exists, this configuration item specifies
+  # whether the filter should skip translation (default) or overwrite the target field
+  # value with the new translation value.
+  config :override, :validate => :boolean, :default => false
 
-  # Redis key name
-  config :key, :validate => :string, :required => true
+  # The destination field you wish to populate with the translated code. The default
+  # is a field named "redis". Set this to the same value as source if you want
+  # to do a substitution, in this case filter will allways succeed. This will clobber
+  # the old value of the source field! 
+  config :destination, :validate => :string, :default => "redis"
 
-  # Delete on retrieval
-  config :delete, :validate => :boolean, :default => false
-
-  # Fields to store in the Redis value
-  config :fields, :validate => :array, :default => ["message"]
-
-  # Field prefix
-  config :prefix, :validate => :string, :default => "old_"
+  # In case no translation occurs in the event (no matches), this will add a default
+  # translation string, which will always populate "field", if the match failed.
+  #
+  # For example, if we have configured `fallback => "no match"`, using this dictionary:
+  #
+  #     foo: bar
+  #
+  # Then, if logstash received an event with the field `foo` set to "bar", the destination
+  # field would be set to "bar". However, if logstash received an event with `foo` set to "nope",
+  # then the destination field would still be populated, but with the value of "no match".
+  config :fallback, :validate => :string
 
   # Connection timeout
   config :timeout, :validate => :number, :required => false, :default => 5
-
-  # Key expiry time
-  config :expiry, :validate => :number, :default => 1800
 
   public
   def register
     require 'redis'
     require 'json'
     @redis = nil
-    @redis_url = "redis://#{@password}@#{@host}:#{@port}/#{@db}"
   end # def register
 
   public
   def filter(event)
-    return unless filter?(event)
+    return unless event.include?(@field)
+    return if event.include?(@destination) and not @override
 
-    # Allow dynamic key names using fields etc
-    key = event.sprintf(@key)
-
-    relevant = [@store_tag, @retrieve_tag].select do |t|
-       event["tags"].include?(t)
-    end
- 
-    @logger.debug(relevant)
-    return unless [] != relevant
- 
-    # Do we retrieve data from a prior event?
-    # N.b. we retrieve before we store so that we can do both if we want!
-    # (e.g. packet sequence numbers? ...)
-    #
-    if event["tags"].include?(@retrieve_tag)
-      @logger.debug("Found retrieve tag %{retrieve_tag}")
-      @redis ||= connect
-      val = @redis.get(key)
-      if val != nil
-        @logger.debug("Found key in Redis")
-        JSON.parse(val).each do |k,v|
-          event[prefix + k] = v
-        end
-        if @delete
-          @redis.del(key) && @logger.debug("Deleted key")
-        end
-      else
-        @logger.debug("Key not found in Redis")
+    source = event[@field].is_a?(Array) ? event[@field].first.to_s : event[@field].to_s
+    @redis ||= connect
+    val = @redis.get(key)
+    if val
+      begin
+        event[@destination] = JSON.parse(val)
+      rescue JSON::ParserError => e
+        event[@destination] = val
       end
+    elsif @fallback
+      event[@destination] = @fallback
     end
-    # Do we store data? 
-    if event["tags"].include?(@store_tag)
-      @logger.debug("Found store tag %{store_tag}")
-      val = event.to_hash().select { |name,value| fields.include?(name) }
-      @redis ||= connect
-      @redis.set(key, val.to_json) && @logger.debug("Stored key")
-      @redis.expire(key, @expiry) && @logger.debug("Set expiry key")
-    end
+      
     # filter_matched should go in the last line of our successful code
     filter_matched(event)
   end # def filter
@@ -103,7 +101,7 @@ class LogStash::Filters::Redis < LogStash::Filters::Base
        :host => @host,
        :port => @port, 
        :timeout => @timeout,
-       :db => db,
+       :db => @db,
        :password => @password.nil? ? nil : @password.value
      )
   end #def connect
