@@ -27,4 +27,20 @@ describe LogStash::Filters::Redis do
     end
   end
 
+  describe "Retrieves data from redis when field is an array" do
+    config <<-CONFIG
+      filter {
+        redis {
+          field => ["redis-key"]
+          destination => "redis-value"
+        }
+      }
+    CONFIG
+
+    sample({"message" => "Test message", "redis-key" => "somekey"}) do
+      insist { subject["redis-value"] } == "somevalue"
+      insist { @redis.get("somekey") } == "somevalue"
+    end
+  end
+
 end
