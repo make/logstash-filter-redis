@@ -80,7 +80,7 @@ class LogStash::Filters::Redis < LogStash::Filters::Base
 
     source = event[@field].is_a?(Array) ? event[@field].first.to_s : event[@field].to_s
     @redis ||= connect
-    val = @redis.get(key)
+    val = @redis.get(source)
     if val
       begin
         event[@destination] = JSON.parse(val)
