@@ -1,7 +1,7 @@
 Gem::Specification.new do |s|
 
   s.name = 'logstash-filter-redis'
-  s.version = '0.1.3'
+  s.version = '0.2.0'
   s.licenses = ['Apache License (2.0)']
   s.summary = "This filter allows the storage of event fields in a redis key to be retrieved by a later event"
   s.description = "This gem is a Logstash plugin required to be installed on top of the Logstash core pipeline using $LS_HOME/bin/logstash-plugin install gemname. This gem is not a stand-alone program"
