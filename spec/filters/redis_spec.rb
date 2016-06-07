@@ -43,4 +43,19 @@ describe LogStash::Filters::Redis do
     end
   end
 
+  describe "Skips non-existing key" do
+    config <<-CONFIG
+      filter {
+        redis {
+          field => "redis-key"
+          destination => "redis-value"
+        }
+      }
+    CONFIG
+
+    sample({"message" => "Test message", "redis-key" => "notakey"}) do
+      insist { subject.include?("redis-value") } == false
+    end
+  end
+
 end
