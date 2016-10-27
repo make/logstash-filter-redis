@@ -78,17 +78,17 @@ class LogStash::Filters::Redis < LogStash::Filters::Base
     return unless event.include?(@field)
     return if event.include?(@destination) and not @override
 
-    source = event[@field].is_a?(Array) ? event[@field].first.to_s : event[@field].to_s
+    source = event.get(@field).is_a?(Array) ? event.get(@field).first.to_s : event.get(@field).to_s
     @redis ||= connect
     val = @redis.get(source)
     if val
       begin
-        event[@destination] = JSON.parse(val)
+        event.set(@destination, JSON.parse(val))
       rescue JSON::ParserError => e
-        event[@destination] = val
+        event.set(@destination, val)
       end
     elsif @fallback
-      event[@destination] = @fallback
+      event.set(@destination, @fallback)
     end
       
     # filter_matched should go in the last line of our successful code

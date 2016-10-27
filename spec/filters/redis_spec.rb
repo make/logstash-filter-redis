@@ -22,7 +22,7 @@ describe LogStash::Filters::Redis do
     CONFIG
 
     sample({"message" => "Test message", "redis-key" => "somekey"}) do
-      insist { subject["redis-value"] } == "somevalue"
+      insist { subject.get("redis-value") } == "somevalue"
       insist { @redis.get("somekey") } == "somevalue"
     end
   end
@@ -38,7 +38,7 @@ describe LogStash::Filters::Redis do
     CONFIG
 
     sample({"message" => "Test message", "redis-key" => "somekey"}) do
-      insist { subject["redis-value"] } == "somevalue"
+      insist { subject.get("redis-value") } == "somevalue"
       insist { @redis.get("somekey") } == "somevalue"
     end
   end
@@ -57,5 +57,6 @@ describe LogStash::Filters::Redis do
       insist { subject.include?("redis-value") } == false
     end
   end
+
 
 end
