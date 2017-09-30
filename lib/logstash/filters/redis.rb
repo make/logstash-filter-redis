@@ -19,10 +19,9 @@ require "logstash/namespace"
 # you might consider using the gsub function of the mutate filter.
 
 class LogStash::Filters::Redis < LogStash::Filters::Base
-
   config_name "redis"
 
-  # The hostname of your Redis server.
+  # The hostname of your redis server.
   config :host, :validate => :string, :default => "127.0.0.1"
 
   # The port to connect on.
@@ -31,14 +30,25 @@ class LogStash::Filters::Redis < LogStash::Filters::Base
   # Password to authenticate with. There is no authentication by default.
   config :password, :validate => :password
 
-  # The Redis database number.
+  # The redis database number.
   config :db, :validate => :number, :default => 0
   
-  # The name of the logstash event field containing the value to be compared for a
-  # match by the translate filter (e.g. "message", "host", "response_code"). 
+  # The name of the logstash event field containing the value to be used as the KEY in
+  # either GET or SET operations. The field value must match exactly the KEY name for GET.
   # 
   # If this field is an array, only the first value will be used.
   config :field, :validate => :string, :required => true
+
+  # The redis action to perform.
+  config :action, :validate => [ "GET", "SET" ], :required => true
+
+  # Set an optional TTL in seconds for the SET action to have values written to redis
+  # automatically expire.
+  config :ttl, :validate => :number
+
+  # The value to set in the redis key. Value is a string. `%{fieldname}` substitutions are
+  # allowed in the values.
+  config :value, :validate => :string
 
   # If the destination (or target) field already exists, this configuration item specifies
   # whether the filter should skip translation (default) or overwrite the target field
@@ -76,23 +86,41 @@ class LogStash::Filters::Redis < LogStash::Filters::Base
   public
   def filter(event)
     return unless event.include?(@field)
-    return if event.include?(@destination) and not @override
 
-    source = event.get(@field).is_a?(Array) ? event.get(@field).first.to_s : event.get(@field).to_s
-    @redis ||= connect
-    val = @redis.get(source)
-    if val
-      begin
-        event.set(@destination, JSON.parse(val))
-      rescue JSON::ParserError => e
-        event.set(@destination, val)
+    if @action == "GET"
+      return if event.include?(@destination) and not @override
+      source = event.get(@field).is_a?(Array) ? event.get(@field).first.to_s : event.get(@field).to_s
+      @redis ||= connect
+      val = @redis.get(source)
+      if val
+        begin
+          event.set(@destination, JSON.parse(val))
+        rescue JSON::ParserError => e
+          event.set(@destination, val)
+        end
+      elsif @fallback
+        event.set(@destination, @fallback)
       end
-    elsif @fallback
-      event.set(@destination, @fallback)
+    elsif @action == "SET"
+      return unless @value
+      target = event.get(@field).is_a?(Array) ? event.get(@field).first.to_s : event.get(@field).to_s
+      val = event.sprintf(@value)
+      @redis ||= connect
+      if val
+        begin
+          @redis.set(target, val)
+          if @ttl
+            begin
+              @redis.expire(target, @ttl)
+            end
+          end
+        end
+      end
     end
-      
+
     # filter_matched should go in the last line of our successful code
     filter_matched(event)
+
   end # def filter
 
   private
